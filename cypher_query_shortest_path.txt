@@ -1,0 +1,69 @@
+1) Quick sanity check (GDS loaded)
+
+RETURN gds.version() AS gds_version;
+############################################################################
+2) (Re)project the graph (no string properties)
+
+If you’ve already projected "trains", you can drop it first:
+
+CALL gds.graph.exists('trains') YIELD exists;
+#########################################################################
+CALL gds.graph.drop('trains');
+##########################################################################
+
+Now (re)project with only numeric relationship weight:
+
+CALL gds.graph.project(
+  'trains',
+  'Station',
+  { CONNECTS_TO: { orientation: 'UNDIRECTED', properties: 'distance_km' } }
+)
+YIELD graphName, nodeCount, relationshipCount
+RETURN graphName, nodeCount, relationshipCount;
+
+If you want direction respected, change orientation: 'NATURAL'.
+#############################################################################
+3) Set your endpoints (Browser params)
+
+:param src => 'Gilfach Fargoed';
+:param dst => 'Energlyn & Churchill Park';
+#############################################################################
+4) Run Dijkstra (stream) and view the path
+
+MATCH (s:Station {name:$src}), (t:Station {name:$dst})
+CALL gds.shortestPath.dijkstra.stream(
+  'trains',
+  { sourceNode:id(s), targetNode:id(t), relationshipWeightProperty:'distance_km' }
+)
+YIELD totalCost, path, costs
+RETURN totalCost AS distance_km,
+       [n IN nodes(path) | n.name] AS stations_along_path,
+       costs;
+#############################################################################
+
+5) Persist a summary relationship + flag the nodes on the path
+
+MATCH (a:Station {name: $src}), (b:Station {name: $dst})
+CALL gds.shortestPath.dijkstra.stream(
+  'trains',
+  { sourceNode: id(a), targetNode: id(b), relationshipWeightProperty: 'distance_km' }
+)
+YIELD totalCost, nodeIds
+MERGE (a)-[r:SP_SUMMARY]->(b)
+SET  r.distance_km = totalCost,
+     r.algorithm   = 'gds.shortestPath.dijkstra',
+     r.ts          = timestamp()
+WITH nodeIds
+UNWIND nodeIds AS nid
+MATCH (n) WHERE id(n) = nid
+SET n.on_shortest_path = true
+RETURN count(*) AS nodes_flagged;
+##############################################################################
+6) Inspect saved results
+
+MATCH (a:Station {name:$src})-[r:SP_SUMMARY]->(b:Station {name:$dst})
+RETURN a.name, b.name, r.distance_km, r.algorithm, r.ts;
+#############################################################################
+
+7) Clean up the in-memory graph when done
+CALL gds.graph.drop('trains');
