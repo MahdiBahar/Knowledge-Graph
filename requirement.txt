@@ -1,2 +1,4 @@
 graphdatascience
 virtuoso-opensource
+pyodbc #for load ttl file on Virtuoso with python
+SPARQLWrapper #for quarying with python
